@@ -1,0 +1,343 @@
+---
+title: "Midterm-2-Chris-Reynolds-STA309"
+author: "Chris Reynolds"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(maps)
+library(patchwork)
+```
+
+```{r}
+dairy_production <- read.csv("https://raw.githubusercontent.com/oconnellmj/sta309/main/milk-production-tonnes.csv")
+dairy_consumption <- read.csv("https://raw.githubusercontent.com/oconnellmj/sta309/main/per-capita-milk-consumption.csv")
+```
+
+```{r}
+#Map of the world
+world_map <- map_data("world") %>%
+  filter(region != "antarctica")
+```
+
+```{r}
+# Determine Common Latest Year Between Both Datasets
+common_latest_year <- min(max(dairy_production$Year, na.rm = TRUE), max(dairy_consumption$Year, na.rm = TRUE))
+# Did my data clean up
+production_latest <- dairy_production %>%
+  filter(Year == common_latest_year) %>%
+  rename(region = Entity, Production = Milk.Production..tonnes.) %>%
+  mutate(region = tolower(region), Production = Production / 1e6)
+
+consumption_latest <- dairy_consumption %>%
+  filter(Year == common_latest_year) %>%
+  rename(region = Entity, Consumption = Milk.consumption..kilograms.per.year.per.capita.) %>%
+  mutate(region = tolower(region)) %>%
+  filter(!is.na(Consumption))
+
+# I had to correct the region names 
+correct_regions <- function(data) {
+  data %>%
+    mutate(region = case_when(
+      region == "united states" ~ "usa",
+      region == "united kingdom" ~ "uk",
+      region == "ivory coast" ~ "cote d'ivoire",
+      region == "congo (kinshasa)" ~ "democratic republic of the congo",
+      region == "congo (brazzaville)" ~ "republic of congo",
+      region == "swaziland" ~ "eswatini",
+      region == "myanmar (burma)" ~ "myanmar",
+      region == "russian federation" ~ "russia",
+      TRUE ~ region
+    ))
+}
+
+production_latest <- correct_regions(production_latest)
+consumption_latest <- correct_regions(consumption_latest)
+```
+
+```{r}
+# Merge Production Data with the world data
+map_production_latest <- world_map %>%
+  mutate(region = tolower(region)) %>%
+  left_join(production_latest, by = "region")
+
+# Merge Consumption Data wit the world data
+map_consumption_latest <- world_map %>%
+  mutate(region = tolower(region)) %>%
+  left_join(consumption_latest, by = "region")
+```
+
+```{r}
+### Plot one gives us a look at the golobal dairy across the world and how much countries make 
+plot1 <- ggplot(map_production_latest, aes(long, lat, group = group)) +
+  geom_polygon(aes(fill = Production), color = "white", size = 0.1) +
+  scale_fill_gradientn(colors = c("darkred", "gold", "yellow", "lightgreen", "darkgreen"), na.value = "grey") +
+  coord_fixed(xlim = c(-180, 180), ylim = c(-60, 90)) +
+  theme_minimal() +
+  labs(title = paste("Global Dairy Production in Million Tonnes (", common_latest_year, ")", sep = ""),
+       fill = "Production (Million Tonnes)") +
+  theme(axis.text = element_blank(),
+        axis.title = element_blank(),
+        panel.grid = element_blank())
+print(plot1)
+```
+
+```{r}
+### Gives us the map of the world based on how much people consume 
+plot2 <- ggplot(map_consumption_latest, aes(long, lat, group = group)) +
+  geom_polygon(aes(fill = Consumption), color = "white", size = 0.1) +
+  scale_fill_gradientn(colors = c("darkred", "gold", "yellow", "lightgreen", "darkgreen"), na.value = "grey50") +
+  coord_fixed(xlim = c(-180, 180), ylim = c(-60, 90)) +
+  theme_minimal() +
+  labs(title = paste("Global Per Capita Dairy Consumption (", common_latest_year, ")", sep = ""),
+       fill = "Consumption (kg/capita)") +
+  theme(axis.text = element_blank(),
+        axis.title = element_blank(),
+        panel.grid = element_blank())
+print(plot2)
+```
+
+```{r}
+## A good plot showing how much prduction of dairy there has been over time 
+plot3 <- ggplot(dairy_production, aes(x = Year, y = Milk.Production..tonnes./1e6)) +
+  geom_smooth(method = "loess", color = "blue", fill = "lightblue") +
+  theme_minimal() +
+  labs(title = "Changes in Dairy Production Over Time (Smoothed Trend)",
+       x = "Year",
+       y = "Production (Million Tonnes)")
+print(plot3)
+```
+
+```{r}
+##This gives us a view on how much countries are producing compared to how much they are consuming 
+dairy_combined <- dairy_production %>%
+  filter(Year == common_latest_year) %>%
+  rename(region = Entity, Production = Milk.Production..tonnes.) %>%
+  inner_join(dairy_consumption %>%
+               filter(Year == common_latest_year) %>%
+               rename(region = Entity, Consumption = Milk.consumption..kilograms.per.year.per.capita.),
+             by = "region") %>%
+  mutate(Production = Production / 1e6)
+
+plot4 <- ggplot(dairy_combined, aes(x = Production, y = Consumption, size = Production)) +
+  geom_point(alpha = 0.6) +
+  theme_minimal() +
+  scale_size_continuous(range = c(1, 10)) +
+  labs(title = "Bubble Plot: Dairy Production vs Consumption",
+       x = "Production (Million Tonnes)",
+       y = "Consumption (kg/capita)",
+       size = "Production Size (Million Tonnes)")
+print(plot4)
+```
+
+```{r}
+final_dashboard <- (plot1 + plot_spacer() + plot2) / (plot3 + plot_spacer() + plot4) +
+  plot_layout( heights = c(1, 1)) &
+  theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+        legend.position = "bottom",
+        plot.margin = margin(10, 10, 10, 10))
+print(final_dashboard)
+```
+
+```{r save-dashboard, eval=FALSE}
+ggsave("dairy_dashboard.png", final_dashboard, width = 16, height = 12, dpi = 300)
+```
+
+```{r}
+library(wordcloud)
+library(tidytext)
+
+taylor_lyrics <- read_csv("https://github.com/adashofdata/taylor_swift_data/raw/main/Taylor_Swift_Words/taylor_swift_words_data.csv")
+spotify_metadata <- read_csv("https://github.com/adashofdata/taylor_swift_data/raw/main/Taylor_Swift_Spotify/taylor_swift_spotify_data.csv")
+
+```
+
+```{r}
+colnames(taylor_lyrics) <- tolower(gsub(" ", "_", colnames(taylor_lyrics)))
+
+taylor_lyrics <- taylor_lyrics %>%
+  select(song_name, everything()) %>%
+  select(where(~ !any(is.na(.))))
+```
+
+
+```{r}
+## Got all of Taylor lyrics and made it into one data set 
+taylor_lyrics_long <- taylor_lyrics %>%
+  pivot_longer(cols = -c(song_name), names_to = "word", values_to = "count") %>%
+  filter(count > 0) %>%
+  uncount(count) %>%
+  group_by(song_name) %>%
+  summarise(lyrics = paste(word, collapse = " ")) %>%
+  ungroup()
+
+```
+
+
+```{r}
+## Then had to match by song to get the Abulm name 
+taylor_lyrics <- taylor_lyrics_long %>%
+  left_join(spotify_metadata, by = c("song_name" = "Song Name"))
+
+```
+
+```{r}
+## Ananlyzing my chosen albulms 
+albums_to_analyze <- c("1989", "Red")
+album_lyrics <- taylor_lyrics %>%
+  filter(Album %in% albums_to_analyze) %>%
+  select(Album, song_name, lyrics)
+```
+
+```{r}
+### The word clouds for these Albulms 
+wordcloud_data_1989 <- album_lyrics %>%
+  filter(Album == "1989") %>%
+  unnest_tokens(word, lyrics) %>%
+  count(word, sort = TRUE)
+
+wordcloud_data_red <- album_lyrics %>%
+  filter(Album == "Red") %>%
+  unnest_tokens(word, lyrics) %>%
+  count(word, sort = TRUE)
+```
+
+```{r}
+par(mfrow = c(1, 2))
+wordcloud(words = wordcloud_data_1989$word, freq = wordcloud_data_1989$n, min.freq = 2, 
+          max.words = 100, random.order = FALSE, colors = brewer.pal(8, "Dark2"))
+title("Word Cloud: 1989")
+
+wordcloud(words = wordcloud_data_red$word, freq = wordcloud_data_red$n, min.freq = 2, 
+          max.words = 100, random.order = FALSE, colors = brewer.pal(8, "Dark2"))
+title("Word Cloud: Red")
+```
+
+
+```{r}
+## Getting the sentiment scores for all these albulms and for the songs in them 
+sentiments <- get_sentiments("nrc")
+
+sentiment_1989 <- album_lyrics %>%
+  filter(Album == "1989") %>%
+  unnest_tokens(word, lyrics) %>%
+  inner_join(sentiments) %>%
+  count(sentiment, sort = TRUE)
+
+sentiment_red <- album_lyrics %>%
+  filter(Album == "Red") %>%
+  unnest_tokens(word, lyrics) %>%
+  inner_join(sentiments) %>%
+  count(sentiment, sort = TRUE)
+
+```
+
+```{r}
+## A comparsion between the two 
+sentiment_comparison <- sentiment_1989 %>%
+  rename(count_1989 = n) %>%
+  full_join(sentiment_red %>% rename(count_red = n), by = "sentiment") %>%
+  replace_na(list(count_1989 = 0, count_red = 0))
+sentiment_comparison
+```
+
+
+```{r}
+## This plot shows the comparsion between them for sentiment score with 1989 winning 
+p1 <- ggplot(sentiment_comparison, aes(x = sentiment)) +
+  geom_bar(aes(y = count_1989, fill = "1989"), stat = "identity", position = "dodge") +
+  geom_bar(aes(y = count_red, fill = "Red"), stat = "identity", position = "dodge") +
+  labs(title = "Sentiment Comparison Between 1989 and Red",
+       x = "Sentiment",
+       y = "Count",
+       fill = "Album") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+print(p1)
+```
+
+```{r}
+merged_data <- album_lyrics %>%
+  left_join(spotify_metadata, by = c("song_name" = "Song Name"))
+
+
+document_sentiment <- merged_data %>%
+  unnest_tokens(word, lyrics) %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(song_name, sentiment, sort = TRUE) %>%
+  spread(sentiment, n, fill = 0) %>%
+  mutate(sentiment_score = positive - negative)
+
+energy_sentiment <- document_sentiment %>%
+  left_join(spotify_metadata, by = c("song_name" = "Song Name")) %>%
+  filter(!is.na(Energy))
+
+```
+
+```{r}
+## Made a scatter plot for the next three plots based on Energy, Danceablity, and Liveness becuase it can show much people were into it and shows that you want these factors when making songs becuase increases sentiment score. 
+p2 <- ggplot(energy_sentiment, aes(x = Energy, y = sentiment_score)) +
+  geom_point() +
+  geom_smooth(method = "lm", color = "red") +
+  labs(title = "Relationship Between Song Energy and Sentiment Score",
+       x = "Energy",
+       y = "Sentiment Score") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+print(p2)
+```
+
+```{r}
+p3 <- ggplot(energy_sentiment, aes(x = Danceability, y = sentiment_score)) +
+  geom_point() +
+  geom_smooth(method = "lm", color = "blue") +
+  labs(title = "Relationship Between Song Danceability and Sentiment Score",
+       x = "Danceability",
+       y = "Sentiment Score") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+print(p3)
+```
+
+```{r}
+p4 <- ggplot(energy_sentiment, aes(x = Liveness, y = sentiment_score)) +
+  geom_point() +
+  geom_smooth(method = "lm", color = "green") +
+  labs(title = "Relationship Between Song Liveness and Sentiment Score",
+       x = "Valence",
+       y = "Sentiment Score") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+print(p4)
+```
+
+
+```{r}
+p5 <- ggplot(energy_sentiment, aes(x = Tempo, y = sentiment_score)) +
+  geom_point() +
+  geom_smooth(method = "lm", color = "purple") +
+  labs(title = "Relationship Between Song Tempo and Sentiment Score",
+       x = "Tempo",
+       y = "Sentiment Score") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+print(p5)
+```
+```{r}
+
+dashboard <- (p1 / (p2 + p3) / (p4 + p5)) +
+  plot_layout(guides = "collect") +
+  theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+        legend.position = "bottom",
+        plot.margin = margin(10, 10, 10, 10))
+print(dashboard)
+```
+
+
+```{r}
+ggsave("taylor_swift_sentiment_dashboard.png", final_dashboard, width = 16, height = 12, dpi = 300)
+```
+
